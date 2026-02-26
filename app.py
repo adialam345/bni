@@ -66,6 +66,7 @@ def extract_bni(pdf_file):
         c_acc, c_owner = "", ""
         running_bal = None
         current_ledger_bal = ""
+        last_printed_ledger_bal = ""
 
         for page_num, page in enumerate(pdf.pages):
             text = page.extract_text()
@@ -76,6 +77,7 @@ def extract_bni(pdf_file):
                     if new_acc != c_acc:
                         c_acc = new_acc
                         running_bal = None
+                        last_printed_ledger_bal = ""
                     mn = re.search(rf'{c_acc}\s*/\s*(.*?)(?:\(|$)', text)
                     if mn: c_owner = mn.group(1).strip()
 
@@ -144,6 +146,8 @@ def extract_bni(pdf_file):
                         if cell and re.search(r'[\d,.]+', str(cell)) and '/' not in str(cell):
                             running_bal = to_float(str(cell).replace(',', ''))
                             current_ledger_bal = f"{running_bal:,.2f}"
+                            if "starting_balance" not in account_info:
+                                account_info["starting_balance"] = current_ledger_bal
                             break
                     continue
 
@@ -164,15 +168,17 @@ def extract_bni(pdf_file):
                     eff = val("eff")
                     if not eff or not re.search(r'\d{2}/\d{2}/\d{4}', eff): eff = p_date
 
+                    out_ledger = current_ledger_bal if current_ledger_bal != last_printed_ledger_bal else ""
+                    last_printed_ledger_bal = current_ledger_bal
+
                     all_data.append({
-                        "Account No": c_acc, "Owner": c_owner,
-                        "Ledger Balance": current_ledger_bal,
                         "Posting Date": p_date, "Effective Date": eff,
                         "Branch": clean_bni_text(val("branch")).replace('\n', ' '),
                         "Journal": clean_bni_text(val("journal")),
                         "Transaction Description": val("desc").replace('\n', ' '),
                         "Amount": final_amt, "DB/CR": dk,
-                        "Balance": f"{curr_bal:,.2f}" if curr_bal else ""
+                        "Balance": f"{curr_bal:,.2f}" if curr_bal else "",
+                        "Ledger Balance": out_ledger
                     })
                     if curr_bal: running_bal = curr_bal
 
@@ -197,7 +203,7 @@ def create_excel_bytes(df, info):
     label_font = Font(bold=True, size=10)
     value_font = Font(size=10)
 
-    ws.merge_cells('A1:K1')
+    ws.merge_cells('A1:I1')
     ws['A1'] = 'ACCOUNT STATEMENT'
     ws['A1'].font = title_font
     ws['A1'].alignment = Alignment(horizontal='center')
@@ -207,22 +213,27 @@ def create_excel_bytes(df, info):
     ws['A4'] = info.get('address', '')
     ws['A4'].font = value_font
 
-    ws['E3'] = 'Account No.'
-    ws['E3'].font = label_font
-    ws['F3'] = f": {info.get('acc_no', '')} / {info.get('acc_name', '')}"
-    ws['F3'].font = value_font
+    ws['D3'] = 'Account No.'
+    ws['D3'].font = label_font
+    ws['E3'] = f": {info.get('acc_no', '')} / {info.get('acc_name', '')}"
+    ws['E3'].font = value_font
 
-    ws['E4'] = 'Account Type'
-    ws['E4'].font = label_font
-    ws['F4'] = f": {info.get('acc_type', '')}   ({info.get('currency', '')})"
-    ws['F4'].font = value_font
+    ws['D4'] = 'Account Type'
+    ws['D4'].font = label_font
+    ws['E4'] = f": {info.get('acc_type', '')}   ({info.get('currency', '')})"
+    ws['E4'].font = value_font
 
-    ws['E5'] = 'Period'
-    ws['E5'].font = label_font
-    ws['F5'] = f": {info.get('period', '')}"
-    ws['F5'].font = value_font
+    ws['D5'] = 'Period'
+    ws['D5'].font = label_font
+    ws['E5'] = f": {info.get('period', '')}"
+    ws['E5'].font = value_font
 
-    start_row = 8
+    ws['D6'] = 'Saldo Awal'
+    ws['D6'].font = label_font
+    ws['E6'] = f": {info.get('starting_balance', '-')}"
+    ws['E6'].font = value_font
+
+    start_row = 9
     header_fill = PatternFill(start_color='FF6600', end_color='FF6600', fill_type='solid')
     header_font = Font(bold=True, color='FFFFFF', size=10)
     thin_border = Border(
@@ -369,6 +380,8 @@ if uploaded_files:
             <div class="value">{info.get('acc_type', '-')} ({info.get('currency', '-')})</div>
             <div class="label">PERIODE</div>
             <div class="value">{info.get('period', '-')}</div>
+            <div class="label">SALDO AWAL</div>
+            <div class="value">{info.get('starting_balance', '-')}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -376,17 +389,14 @@ if uploaded_files:
         total_trx = len(df)
         total_debit = len(df[df["DB/CR"] == "D"])
         total_kredit = len(df[df["DB/CR"] == "K"])
-        unique_acc = df["Account No"].nunique()
 
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns(3)
         with c1:
             st.markdown(f'<div class="stat-box"><div class="number">{total_trx}</div><div class="label">Total Transaksi</div></div>', unsafe_allow_html=True)
         with c2:
             st.markdown(f'<div class="stat-box"><div class="number">{total_debit}</div><div class="label">Debit (D)</div></div>', unsafe_allow_html=True)
         with c3:
             st.markdown(f'<div class="stat-box"><div class="number">{total_kredit}</div><div class="label">Kredit (K)</div></div>', unsafe_allow_html=True)
-        with c4:
-            st.markdown(f'<div class="stat-box"><div class="number">{unique_acc}</div><div class="label">Jumlah Akun</div></div>', unsafe_allow_html=True)
 
         st.markdown("---")
 
