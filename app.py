@@ -66,7 +66,6 @@ def extract_bni(pdf_file):
         c_acc, c_owner = "", ""
         running_bal = None
         current_ledger_bal = ""
-        last_printed_ledger_bal = ""
 
         for page_num, page in enumerate(pdf.pages):
             text = page.extract_text()
@@ -77,7 +76,7 @@ def extract_bni(pdf_file):
                     if new_acc != c_acc:
                         c_acc = new_acc
                         running_bal = None
-                        last_printed_ledger_bal = ""
+
                     mn = re.search(rf'{c_acc}\s*/\s*(.*?)(?:\(|$)', text)
                     if mn: c_owner = mn.group(1).strip()
 
@@ -148,6 +147,14 @@ def extract_bni(pdf_file):
                             current_ledger_bal = f"{running_bal:,.2f}"
                             if "starting_balance" not in account_info:
                                 account_info["starting_balance"] = current_ledger_bal
+                            # Sisipkan baris "Saldo Awal" ke data
+                            all_data.append({
+                                "Posting Date": "", "Effective Date": "",
+                                "Branch": "", "Journal": "",
+                                "Transaction Description": "Saldo Awal",
+                                "Amount": "", "DB/CR": "",
+                                "Balance": current_ledger_bal
+                            })
                             break
                     continue
 
@@ -168,17 +175,13 @@ def extract_bni(pdf_file):
                     eff = val("eff")
                     if not eff or not re.search(r'\d{2}/\d{2}/\d{4}', eff): eff = p_date
 
-                    out_ledger = current_ledger_bal if current_ledger_bal != last_printed_ledger_bal else ""
-                    last_printed_ledger_bal = current_ledger_bal
-
                     all_data.append({
                         "Posting Date": p_date, "Effective Date": eff,
                         "Branch": clean_bni_text(val("branch")).replace('\n', ' '),
                         "Journal": clean_bni_text(val("journal")),
                         "Transaction Description": val("desc").replace('\n', ' '),
                         "Amount": final_amt, "DB/CR": dk,
-                        "Balance": f"{curr_bal:,.2f}" if curr_bal else "",
-                        "Ledger Balance": out_ledger
+                        "Balance": f"{curr_bal:,.2f}" if curr_bal else ""
                     })
                     if curr_bal: running_bal = curr_bal
 
