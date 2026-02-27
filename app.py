@@ -98,100 +98,115 @@ def extract_bni(pdf_file):
                     }
 
             table = page.extract_table()
-            if not table: continue
 
-            col, h_idx = {}, -1
-            num_cols = len(table[0]) if table else 0
-            for i, row in enumerate(table):
-                row_str = " ".join([clean_bni_text(str(c)).upper() for c in row if c])
-                if "POSTING DATE" in row_str:
-                    h_idx = i
-                    for j, cell in enumerate(row):
-                        t = clean_bni_text(str(cell)).upper()
-                        if "POSTING" in t: col["post"] = j
-                        elif "EFFECTIVE" in t: col["eff"] = j
-                        elif "BRANCH" in t: col["branch"] = j
-                        elif "JOURNAL" in t: col["journal"] = j
-                        elif "DESCRIPTION" in t: col["desc"] = j
-                        elif "AMOUNT" in t: col["amt"] = j
-                        elif "DB/CR" in t: col["dk"] = j
-                        elif "BALANCE" in t: col["bal"] = j
-                    break
-
-            if h_idx == -1 and not col:
-                if num_cols == 8:
-                    col = {"post": 0, "eff": 1, "branch": 2, "journal": 3,
-                           "desc": 4, "amt": 5, "dk": 6, "bal": 7}
-                elif num_cols == 10:
-                    col = {"post": 1, "eff": 2, "branch": 3, "journal": 4,
-                           "desc": 5, "amt": 6, "dk": 7, "bal": 9}
-                else: continue
-
-            active_col = col
-            if not active_col: continue
-            start = h_idx + 1 if h_idx != -1 else 0
-
-            for row in table[start:]:
-                def val(key):
-                    idx = active_col.get(key)
-                    if idx is not None and idx < len(row) and row[idx]:
-                        return str(row[idx]).strip()
-                    return ""
-
-                row_text = " ".join([str(x) for x in row if x])
-
-                if "Ledger Balance" in row_text:
-                    for cell in reversed(row):
-                        if cell and re.search(r'[\d,.]+', str(cell)) and '/' not in str(cell):
-                            running_bal = to_float(str(cell).replace(',', ''))
-                            current_ledger_bal = f"{running_bal:,.2f}"
-                            if "starting_balance" not in account_info:
-                                account_info["starting_balance"] = current_ledger_bal
-                            # Sisipkan baris "Saldo Awal" ke data
-                            all_data.append({
-                                "Posting Date": "", "Effective Date": "",
-                                "Branch": "", "Journal": "",
-                                "Transaction Description": "Saldo Awal",
-                                "Amount": "", "DB/CR": "",
-                                "Balance": current_ledger_bal
-                            })
-                            break
-                    continue
-
-                if "Ending Balance" in row_text: continue
-
-                p_date = ""
-                for cell in row[:3]:
-                    c = str(cell).strip() if cell else ""
-                    if c and re.search(r'\d{2}/\d{2}/\d{4}', c):
-                        p_date = c
+            if table:
+                col, h_idx = {}, -1
+                num_cols = len(table[0]) if table else 0
+                for i, row in enumerate(table):
+                    row_str = " ".join([clean_bni_text(str(c)).upper() for c in row if c])
+                    if "POSTING DATE" in row_str:
+                        h_idx = i
+                        for j, cell in enumerate(row):
+                            t = clean_bni_text(str(cell)).upper()
+                            if "POSTING" in t: col["post"] = j
+                            elif "EFFECTIVE" in t: col["eff"] = j
+                            elif "BRANCH" in t: col["branch"] = j
+                            elif "JOURNAL" in t: col["journal"] = j
+                            elif "DESCRIPTION" in t: col["desc"] = j
+                            elif "AMOUNT" in t: col["amt"] = j
+                            elif "DB/CR" in t: col["dk"] = j
+                            elif "BALANCE" in t: col["bal"] = j
                         break
 
-                if p_date:
-                    raw_amt, raw_bal = val("amt"), val("bal")
-                    dk = clean_bni_text(val("dk"))
-                    curr_bal = to_float(raw_bal.replace(',', '')) if raw_bal else None
-                    final_amt = audit_amount(raw_amt, running_bal, curr_bal, dk)
-                    eff = val("eff")
-                    if not eff or not re.search(r'\d{2}/\d{2}/\d{4}', eff): eff = p_date
+                if h_idx == -1 and not col:
+                    if num_cols == 8:
+                        col = {"post": 0, "eff": 1, "branch": 2, "journal": 3,
+                               "desc": 4, "amt": 5, "dk": 6, "bal": 7}
+                    elif num_cols == 10:
+                        col = {"post": 1, "eff": 2, "branch": 3, "journal": 4,
+                               "desc": 5, "amt": 6, "dk": 7, "bal": 9}
 
+                active_col = col
+                start = h_idx + 1 if h_idx != -1 else 0
+
+                if active_col:
+                    for row in table[start:]:
+                        def val(key):
+                            idx = active_col.get(key)
+                            if idx is not None and idx < len(row) and row[idx]:
+                                return str(row[idx]).strip()
+                            return ""
+
+                        row_text = " ".join([str(x) for x in row if x])
+
+                        if "Ledger Balance" in row_text:
+                            for cell in reversed(row):
+                                if cell and re.search(r'[\d,.]+', str(cell)) and '/' not in str(cell):
+                                    running_bal = to_float(str(cell).replace(',', ''))
+                                    current_ledger_bal = f"{running_bal:,.2f}"
+                                    if "starting_balance" not in account_info:
+                                        account_info["starting_balance"] = current_ledger_bal
+                                    all_data.append({
+                                        "Posting Date": "", "Effective Date": "",
+                                        "Branch": "", "Journal": "",
+                                        "Transaction Description": "Saldo Awal",
+                                        "Amount": "", "DB/CR": "",
+                                        "Balance": current_ledger_bal
+                                    })
+                                    break
+                            continue
+
+                        if "Ending Balance" in row_text:
+                            continue
+
+                        p_date = ""
+                        for cell in row[:3]:
+                            c = str(cell).strip() if cell else ""
+                            if c and re.search(r'\d{2}/\d{2}/\d{4}', c):
+                                p_date = c
+                                break
+
+                        if p_date:
+                            raw_amt, raw_bal = val("amt"), val("bal")
+                            dk = clean_bni_text(val("dk"))
+                            curr_bal = to_float(raw_bal.replace(',', '')) if raw_bal else None
+                            final_amt = audit_amount(raw_amt, running_bal, curr_bal, dk)
+                            eff = val("eff")
+                            if not eff or not re.search(r'\d{2}/\d{2}/\d{4}', eff): eff = p_date
+
+                            all_data.append({
+                                "Posting Date": p_date, "Effective Date": eff,
+                                "Branch": clean_bni_text(val("branch")).replace('\n', ' '),
+                                "Journal": clean_bni_text(val("journal")),
+                                "Transaction Description": val("desc").replace('\n', ' '),
+                                "Amount": final_amt, "DB/CR": dk,
+                                "Balance": f"{curr_bal:,.2f}" if curr_bal else ""
+                            })
+                            if curr_bal: running_bal = curr_bal
+
+                        elif all_data and any(row):
+                            last = all_data[-1]
+                            b, d = val("branch"), val("desc")
+                            if b and not re.search(r'(ENDING|TOTAL|LEDGER)', b, re.I):
+                                last["Branch"] = (last["Branch"] + " " + clean_bni_text(b).replace('\n', ' ')).strip()
+                            if d and not re.search(r'(ENDING|TOTAL|LEDGER)', d, re.I):
+                                last["Transaction Description"] = (last["Transaction Description"] + " " + d.replace('\n', ' ')).strip()
+
+            # Extract Ending Balance from page text (not in table)
+            if text:
+                m_ending = re.search(r'Ending\s+Balance\s*:?\s*([\d,]+(?:\.\d+)?)', text, re.I)
+                if m_ending:
+                    ending_val = to_float(m_ending.group(1).replace(',', ''))
+                    ending_bal_str = f"{ending_val:,.2f}"
+                    running_bal = ending_val
+                    account_info["ending_balance"] = ending_bal_str
                     all_data.append({
-                        "Posting Date": p_date, "Effective Date": eff,
-                        "Branch": clean_bni_text(val("branch")).replace('\n', ' '),
-                        "Journal": clean_bni_text(val("journal")),
-                        "Transaction Description": val("desc").replace('\n', ' '),
-                        "Amount": final_amt, "DB/CR": dk,
-                        "Balance": f"{curr_bal:,.2f}" if curr_bal else ""
+                        "Posting Date": "", "Effective Date": "",
+                        "Branch": "", "Journal": "",
+                        "Transaction Description": "Saldo Akhir",
+                        "Amount": "", "DB/CR": "",
+                        "Balance": ending_bal_str
                     })
-                    if curr_bal: running_bal = curr_bal
-
-                elif all_data and any(row):
-                    last = all_data[-1]
-                    b, d = val("branch"), val("desc")
-                    if b and not re.search(r'(ENDING|TOTAL|LEDGER)', b, re.I):
-                        last["Branch"] = (last["Branch"] + " " + clean_bni_text(b).replace('\n', ' ')).strip()
-                    if d and not re.search(r'(ENDING|TOTAL|LEDGER)', d, re.I):
-                        last["Transaction Description"] = (last["Transaction Description"] + " " + d.replace('\n', ' ')).strip()
 
     return all_data, account_info
 
@@ -235,6 +250,11 @@ def create_excel_bytes(df, info):
     ws['D6'].font = label_font
     ws['E6'] = f": {info.get('starting_balance', '-')}"
     ws['E6'].font = value_font
+
+    ws['D7'] = 'Saldo Akhir'
+    ws['D7'].font = label_font
+    ws['E7'] = f": {info.get('ending_balance', '-')}"
+    ws['E7'].font = value_font
 
     start_row = 9
     header_fill = PatternFill(start_color='FF6600', end_color='FF6600', fill_type='solid')
@@ -385,6 +405,8 @@ if uploaded_files:
             <div class="value">{info.get('period', '-')}</div>
             <div class="label">SALDO AWAL</div>
             <div class="value">{info.get('starting_balance', '-')}</div>
+            <div class="label">SALDO AKHIR</div>
+            <div class="value">{info.get('ending_balance', '-')}</div>
         </div>
         """, unsafe_allow_html=True)
 
